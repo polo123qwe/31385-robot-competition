@@ -321,15 +321,15 @@ int main() {
       break;
 
     case ms_followline:
-      if (control(dist, angle, 0.2, followdirection, mission.time))
+      if (control(dist, angle, 0.6, followdirection, mission.time))
         mission.state = ms_end;
       break;
 
     case ms_end:
       mot.cmd = mot_stop;
-      // printf("%f %f %f %f %f %f %f %f %f %f\n", laserpar[0], laserpar[1],
-      //        laserpar[2], laserpar[3], laserpar[4], laserpar[5], laserpar[6],
-      //        laserpar[7], laserpar[8], laserpar[9]);
+      printf("%f %f %f %f %f %f %f %f %f %f\n", laserpar[0], laserpar[1],
+             laserpar[2], laserpar[3], laserpar[4], laserpar[5], laserpar[6],
+             laserpar[7], laserpar[8], laserpar[9]);
       running = 0;
       break;
     }
@@ -505,10 +505,10 @@ void update_motcon(motiontype *p, odotype *odo) {
   int minLineSensorIndex =
       find_lowest_line_idx(normalised_sensor_data, p->followdirection);
 
-  // printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
-  //        linesensor->data[1], linesensor->data[2], linesensor->data[3],
-  //        linesensor->data[4], linesensor->data[5], linesensor->data[6],
-  //        linesensor->data[7], minLineSensorIndex);
+  printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
+         linesensor->data[1], linesensor->data[2], linesensor->data[3],
+         linesensor->data[4], linesensor->data[5], linesensor->data[6],
+         linesensor->data[7], minLineSensorIndex);
 
   // printf("%f %f %f %f %f %f %f %f %f %f\n", laserpar[0],
   //        laserpar[1], laserpar[2], laserpar[3],
@@ -591,16 +591,16 @@ void update_motcon(motiontype *p, odotype *odo) {
     // K=3; delta_v = K * (final angle - current angle)
 
     // // delta_velocity = 10 * remaining_angle;
-    delta_velocity = 1.25 * (normalised_sensor_data[MIDDLE_LINE_SENSOR] -
+    delta_velocity = 1 * (normalised_sensor_data[MIDDLE_LINE_SENSOR] -
                              normalised_sensor_data[minLineSensorIndex]);
     // delta_velocity = .2 * center_of_mass;
 
-    if (minLineSensorIndex == -1) {
-      p->motorspeed_r = 0;
-      p->motorspeed_l = 0;
-      p->finished = 1;
-      break;
-    }
+    // if (minLineSensorIndex == -1) {
+    //   p->motorspeed_r = 0;
+    //   p->motorspeed_l = 0;
+    //   p->finished = 1;
+    //   break;
+    // }
 
     if (p->followdirection == follow_middle) {
       if (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.1) {
@@ -613,7 +613,9 @@ void update_motcon(motiontype *p, odotype *odo) {
     // }
 
     if (minLineSensorIndex < MIDDLE_LINE_SENSOR) {
-      delta_velocity = -delta_velocity;
+      delta_velocity = -delta_velocity * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
+    } else {
+      delta_velocity = delta_velocity * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
     }
 
     // printf("dv=%f;sensor_m=%f;sensor_min=%f\n", delta_velocity,
@@ -703,7 +705,7 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
     if (lineValues[i] == lineValues[smallestValueIndex]) {
       if (i == MIDDLE_LINE_SENSOR) {
         foundMiddleLineIdx = i;
-      } else if (i < MIDDLE_LINE_SENSOR) {
+      } else if (i < MIDDLE_LINE_SENSOR && foundRightLineIdx == -1) {
         foundRightLineIdx = i;
       } else if (i > MIDDLE_LINE_SENSOR) {
         foundLeftLineIdx = i;
@@ -712,17 +714,17 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
   }
 
   // Stop at cross
-  bool crossLine = true;
-  for (int i = 1; i < 7; i++) {
-    if (lineValues[i] != lineValues[smallestValueIndex]) {
-      crossLine = false;
-      break;
-    }
-  }
+  // bool crossLine = true;
+  // for (int i = 1; i < 7; i++) {
+  //   if (lineValues[i] != lineValues[smallestValueIndex]) {
+  //     crossLine = false;
+  //     break;
+  //   }
+  // }
 
-  if (crossLine) {
-    return -1;
-  }
+  // if (crossLine) {
+  //   return -1;
+  // }
 
   switch (followdirection) {
   case follow_middle:
