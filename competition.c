@@ -91,6 +91,7 @@ typedef struct { // input
   double startangle;
   double finalangle;
   int followdirection;
+  int stop_criteria;
   double dist;
   double angle;
   double left_pos, right_pos;
@@ -103,16 +104,29 @@ typedef struct { // input
   double startpos;
 } motiontype;
 
-enum { mot_stop = 1, mot_move, mot_turn, mot_control };
+enum { mot_stop = 1, mot_move, mot_turn, mot_followline };
 
 enum { follow_left, follow_middle, follow_right };
+
+enum {
+  step_followline_until_box,
+  step_turn_180,
+  step_move_until_turn_right,
+  step_followline_middle_until_line_stops,
+  step_move_backwards_until_not_next_to_wall,
+  // step_turn_180,
+  step_followline_left,
+  //...
+};
+
+enum { stop_at_box, stop_at_lost_line, stop_at_crossing };
 
 void update_motcon(motiontype *p, odotype *odo);
 
 int fwd(double dist, double speed, int time);
 int turn(double angle, double speed, double startangle, int time);
-int control(double dist, double finalangle, double speed, int followdirection,
-            int time);
+int follow_line(int stop_criteria, double finalangle, double speed,
+                int followdirection, int time);
 
 typedef struct {
   int state, oldstate;
@@ -140,7 +154,7 @@ double *linear_transformation(int OldValues[]);
 int find_lowest_line_idx(double NewValues[], int followdirection);
 
 int main() {
-  int running, n = 0, arg, time = 0, stop_at_crossing = 0;
+  int running, n = 0, arg, time = 0, stop_criteria = 0, current_step = 0;
   double dist = 0, angle = 0, followdirection = follow_middle;
 
   /* Establish connection to robot sensors and actuators.
@@ -296,11 +310,13 @@ int main() {
 
     switch (mission.state) {
     case ms_init:
-      n = 4;
+      n = 1;
       dist = 2;
       // angle = 90.0 / 180 * M_PI;
       angle = 0;
       followdirection = follow_right;
+      current_step = step_followline_until_box;
+      stop_criteria = stop_at_box;
       mission.state = ms_followline;
       break;
 
@@ -321,8 +337,12 @@ int main() {
       break;
 
     case ms_followline:
-      if (control(dist, angle, 0.6, followdirection, mission.time))
+      if (follow_line(stop_criteria, angle, 0.6, followdirection,
+                      mission.time)) {
+        // angle = 1 * M_PI - 0.1;
+        // mission.state = ms_turn;
         mission.state = ms_end;
+      }
       break;
 
     case ms_end:
@@ -462,9 +482,9 @@ void update_motcon(motiontype *p, odotype *odo) {
       p->curcmd = mot_turn;
       break;
 
-    case ms_followline:
+    case mot_followline:
       p->startpos = (p->left_pos + p->right_pos) / 2;
-      p->curcmd = mot_control;
+      p->curcmd = mot_followline;
 
       p->cmd = 0;
       break;
@@ -487,13 +507,6 @@ void update_motcon(motiontype *p, odotype *odo) {
   double breaking_distance_current =
       (p->currentspeed * p->currentspeed) / (2 * max_accel);
 
-  // printf("Theta %f, current angle %f, starting angle %f, target angle %f
-  // \n",
-  //        odo->theta, current_angle, p->startangle, p->angle);
-  // printf("Speed is now %f, acc %f, speedcmd %f\n", p->currentspeed,
-  // current_accel, p->speedcmd); printf("Angles are %f %f %f\n", p->angle,
-  // odo->theta, p->startangle);
-
   double remaining_angle = p->finalangle - odo->theta;
   remaining_angle += (remaining_angle > M_PI)    ? -(2 * M_PI)
                      : (remaining_angle < -M_PI) ? (2 * M_PI)
@@ -505,20 +518,15 @@ void update_motcon(motiontype *p, odotype *odo) {
   int minLineSensorIndex =
       find_lowest_line_idx(normalised_sensor_data, p->followdirection);
 
-  printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
-         linesensor->data[1], linesensor->data[2], linesensor->data[3],
-         linesensor->data[4], linesensor->data[5], linesensor->data[6],
-         linesensor->data[7], minLineSensorIndex);
+  // printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
+  //        linesensor->data[1], linesensor->data[2], linesensor->data[3],
+  //        linesensor->data[4], linesensor->data[5], linesensor->data[6],
+  //        linesensor->data[7], minLineSensorIndex);
 
   // printf("%f %f %f %f %f %f %f %f %f %f\n", laserpar[0],
   //        laserpar[1], laserpar[2], laserpar[3],
   //        laserpar[4], laserpar[5], laserpar[6],
   //        laserpar[7], laserpar[8], laserpar[9]);
-
-  // double center_of_mass = calculate_center_of_mass(normalised_sensor_data,
-  // 1);
-
-  // printf("CoM: %f\n", center_of_mass);
 
   switch (p->curcmd) {
   case mot_stop:
@@ -550,18 +558,14 @@ void update_motcon(motiontype *p, odotype *odo) {
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
 
+      printf("Curr and target %f %f", current_angle, p->angle);
+
       if (current_angle >= p->angle) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
-      } else if ((p->angle - current_angle) * (p->w / 2) <
-                 breaking_distance_current / 2) {
-        p->currentspeed = -(max_accel * delta_time) + p->currentspeed;
-        p->motorspeed_r = p->currentspeed / 2;
-        p->motorspeed_l = -p->currentspeed / 2;
-
       } else {
-        p->currentspeed = (current_accel * delta_time) + p->currentspeed;
+        p->currentspeed = p->speedcmd;
         p->motorspeed_r = p->currentspeed / 2;
         p->motorspeed_l = -p->currentspeed / 2;
       }
@@ -571,14 +575,8 @@ void update_motcon(motiontype *p, odotype *odo) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
-      } else if ((p->angle - current_angle) * (p->w / 2) <
-                 breaking_distance_current / 2) {
-        p->currentspeed = -(max_accel * delta_time) + p->currentspeed;
-        p->motorspeed_r = -p->currentspeed / 2;
-        p->motorspeed_l = p->currentspeed / 2;
-
       } else {
-        p->currentspeed = (current_accel * delta_time) + p->currentspeed;
+        p->currentspeed = p->speedcmd;
         p->motorspeed_r = -p->currentspeed / 2;
         p->motorspeed_l = p->currentspeed / 2;
       }
@@ -586,21 +584,20 @@ void update_motcon(motiontype *p, odotype *odo) {
 
     break;
 
-  case mot_control:
-    // delta V and mot_turn/mot_move cases
-    // K=3; delta_v = K * (final angle - current angle)
+  case mot_followline:
 
-    // // delta_velocity = 10 * remaining_angle;
+    if (p->stop_criteria == stop_at_crossing ||
+        p->stop_criteria == stop_at_lost_line)) {
+        if (minLineSensorIndex == -1) {
+          p->motorspeed_r = 0;
+          p->motorspeed_l = 0;
+          p->finished = 1;
+          break;
+        }
+      }
+
     delta_velocity = 1 * (normalised_sensor_data[MIDDLE_LINE_SENSOR] -
-                             normalised_sensor_data[minLineSensorIndex]);
-    // delta_velocity = .2 * center_of_mass;
-
-    // if (minLineSensorIndex == -1) {
-    //   p->motorspeed_r = 0;
-    //   p->motorspeed_l = 0;
-    //   p->finished = 1;
-    //   break;
-    // }
+                          normalised_sensor_data[minLineSensorIndex]);
 
     if (p->followdirection == follow_middle) {
       if (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.1) {
@@ -608,29 +605,16 @@ void update_motcon(motiontype *p, odotype *odo) {
       }
     }
 
-    // if (center_of_mass != center_of_mass) {
-    //   delta_velocity = 0;
-    // }
-
     if (minLineSensorIndex < MIDDLE_LINE_SENSOR) {
-      delta_velocity = -delta_velocity * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
+      delta_velocity =
+          -delta_velocity * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
     } else {
-      delta_velocity = delta_velocity * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
+      delta_velocity =
+          delta_velocity * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
     }
 
-    // printf("dv=%f;sensor_m=%f;sensor_min=%f\n", delta_velocity,
-    // normalised_sensor_data[4], normalised_sensor_data[minLineSensorIndex]);
-
-    // delta_velocity = 0.5 * center_of_mass;
-
-    if ((p->right_pos + p->left_pos) / 2 - p->startpos > p->dist) {
-      p->motorspeed_r = 0;
-      p->motorspeed_l = 0;
-      p->finished = 1;
-    } else {
-      p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
-      p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
-    }
+    p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
+    p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
 
     break;
   }
@@ -714,17 +698,17 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
   }
 
   // Stop at cross
-  // bool crossLine = true;
-  // for (int i = 1; i < 7; i++) {
-  //   if (lineValues[i] != lineValues[smallestValueIndex]) {
-  //     crossLine = false;
-  //     break;
-  //   }
-  // }
+  bool crossLine = true;
+  for (int i = 1; i < 7; i++) {
+    if (lineValues[i] != lineValues[smallestValueIndex]) {
+      crossLine = false;
+      break;
+    }
+  }
 
-  // if (crossLine) {
-  //   return -1;
-  // }
+  if (crossLine) {
+    return -1;
+  }
 
   switch (followdirection) {
   case follow_middle:
@@ -774,14 +758,14 @@ int turn(double angle, double speed, double startangle, int time) {
 }
 
 // ex7
-int control(double dist, double finalangle, double speed, int followdirection,
-            int time)
+int follow_line(int stop_criteria, double finalangle, double speed,
+                int followdirection, int time)
 
 {
   if (time == 0) {
-    mot.cmd = mot_control;
+    mot.cmd = mot_followline;
     mot.speedcmd = speed;
-    mot.dist = dist;
+    mot.stop_criteria = stop_criteria;
 
     mot.currentspeed = 0;
     mot.finalangle = finalangle;
