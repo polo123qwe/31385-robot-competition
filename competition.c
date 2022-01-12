@@ -89,11 +89,10 @@ typedef struct { // input
   double speedcmd;
   double currentspeed;
   double startangle;
-  double finalangle;
   int followdirection;
   int stop_criteria;
   double dist;
-  double angle;
+  double angle; // How much to turn
   double left_pos, right_pos;
   // parameters
   double w;
@@ -109,13 +108,13 @@ enum { mot_stop = 1, mot_move, mot_turn, mot_followline };
 enum { follow_left, follow_middle, follow_right };
 
 enum {
-  step_followline_until_box,
-  step_turn_180,
-  step_move_until_turn_right,
-  step_followline_middle_until_line_stops,
-  step_move_backwards_until_not_next_to_wall,
-  // step_turn_180,
-  step_followline_left,
+  step_1_followline_until_box = 1,
+  step_2_turn_180,
+  step_3_followline_middle_until_box,
+  step_4_followline_middle_until_line_stops,
+  step_5_move_backwards_until_not_next_to_wall,
+  step_6_turn_180,
+  step_7_followline_left,
   //...
 };
 
@@ -125,8 +124,7 @@ void update_motcon(motiontype *p, odotype *odo);
 
 int fwd(double dist, double speed, int time);
 int turn(double angle, double speed, double startangle, int time);
-int follow_line(int stop_criteria, double finalangle, double speed,
-                int followdirection, int time);
+int follow_line(int stop_criteria, double speed, int followdirection, int time);
 
 typedef struct {
   int state, oldstate;
@@ -145,7 +143,15 @@ odotype odo;
 smtype mission;
 motiontype mot;
 
-enum { ms_init, ms_fwd, ms_turn, ms_end, ms_followline, ms_fwd_obst };
+enum {
+  ms_init,
+  ms_fwd,
+  ms_turn,
+  ms_end,
+  ms_followline,
+  ms_fwd_obst,
+  ms_change_step
+};
 
 double calculate_center_of_mass(double values[], int followBlack);
 
@@ -153,9 +159,11 @@ double *linear_transformation(int OldValues[]);
 
 int find_lowest_line_idx(double NewValues[], int followdirection);
 
+double check_obstacle_distance();
+
 int main() {
-  int running, n = 0, arg, time = 0, stop_criteria = 0, current_step = 0;
-  double dist = 0, angle = 0, followdirection = follow_middle;
+  int running, arg, time = 0, stop_criteria = 0, current_step = 0;
+  double dist = 0, angle = 0, followdirection = follow_middle, speed = 0;
 
   /* Establish connection to robot sensors and actuators.
    */
@@ -310,46 +318,67 @@ int main() {
 
     switch (mission.state) {
     case ms_init:
-      n = 1;
-      dist = 2;
+      // dist = 2;
       // angle = 90.0 / 180 * M_PI;
       angle = 0;
+      speed = 0.4;
       followdirection = follow_right;
-      current_step = step_followline_until_box;
+      current_step = step_1_followline_until_box;
       stop_criteria = stop_at_box;
       mission.state = ms_followline;
       break;
 
-    case ms_fwd:
-      if (fwd(dist, 0.4, mission.time))
+    case ms_change_step:
+      printf("Step %d finished!\n", current_step);
+      if (current_step == step_1_followline_until_box) {
+        angle = 1 * M_PI - 0.2;
+        current_step = step_2_turn_180;
         mission.state = ms_turn;
+      } else if (current_step == step_2_turn_180) {
+        followdirection = follow_right;
+        stop_criteria = stop_at_crossing;
+        current_step = step_3_followline_middle_until_box;
+        mission.state = ms_followline;
+      } else if (current_step == step_3_followline_middle_until_box) {
+        followdirection = follow_middle;
+        stop_criteria = stop_at_box;
+        current_step = step_4_followline_middle_until_line_stops;
+        mission.state = ms_followline;
+      } else if (current_step == step_4_followline_middle_until_line_stops) {
+        followdirection = follow_middle;
+        stop_criteria = stop_at_lost_line;
+        current_step = step_5_move_backwards_until_not_next_to_wall;
+        mission.state = ms_followline;
+      } else if (current_step == step_4_followline_middle_until_line_stops) {
+        followdirection = follow_middle;
+        stop_criteria = stop_at_crossing;
+        speed = -0.4;
+        current_step = step_6_turn_180;
+        mission.state = ms_followline;
+      } else {
+        mission.state = ms_end;
+      }
+      break;
+
+    case ms_fwd:
+      if (fwd(dist, speed, mission.time))
+        mission.state = ms_change_step;
       break;
 
     case ms_turn:
-      // mission.state = ms_end;
-      if (turn(angle, 0.4, odo.theta, mission.time)) {
-        n = n - 1;
-        if (n == 0)
-          mission.state = ms_end;
-        else
-          mission.state = ms_fwd;
+      if (turn(angle, speed, odo.theta, mission.time)) {
+        mission.state = ms_change_step;
       }
       break;
 
     case ms_followline:
-      if (follow_line(stop_criteria, angle, 0.6, followdirection,
-                      mission.time)) {
-        // angle = 1 * M_PI - 0.1;
-        // mission.state = ms_turn;
-        mission.state = ms_end;
+      if (follow_line(stop_criteria, speed, followdirection, mission.time)) {
+        mission.state = ms_change_step;
       }
       break;
 
     case ms_end:
       mot.cmd = mot_stop;
-      printf("%f %f %f %f %f %f %f %f %f %f\n", laserpar[0], laserpar[1],
-             laserpar[2], laserpar[3], laserpar[4], laserpar[5], laserpar[6],
-             laserpar[7], laserpar[8], laserpar[9]);
       running = 0;
       break;
     }
@@ -507,16 +536,19 @@ void update_motcon(motiontype *p, odotype *odo) {
   double breaking_distance_current =
       (p->currentspeed * p->currentspeed) / (2 * max_accel);
 
-  double remaining_angle = p->finalangle - odo->theta;
-  remaining_angle += (remaining_angle > M_PI)    ? -(2 * M_PI)
-                     : (remaining_angle < -M_PI) ? (2 * M_PI)
-                                                 : 0;
   double delta_velocity;
 
   double *normalised_sensor_data = linear_transformation(linesensor->data);
 
   int minLineSensorIndex =
       find_lowest_line_idx(normalised_sensor_data, p->followdirection);
+
+  printf("linesensor %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f;idx = % d\n ",
+         normalised_sensor_data[0], normalised_sensor_data[1],
+         normalised_sensor_data[2], normalised_sensor_data[3],
+         normalised_sensor_data[4], normalised_sensor_data[5],
+         normalised_sensor_data[6], normalised_sensor_data[7],
+         minLineSensorIndex);
 
   // printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
   //        linesensor->data[1], linesensor->data[2], linesensor->data[3],
@@ -527,6 +559,8 @@ void update_motcon(motiontype *p, odotype *odo) {
   //        laserpar[1], laserpar[2], laserpar[3],
   //        laserpar[4], laserpar[5], laserpar[6],
   //        laserpar[7], laserpar[8], laserpar[9]);
+
+  double K = .2;
 
   switch (p->curcmd) {
   case mot_stop:
@@ -554,11 +588,11 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_turn:
+    // printf("Current %f target %f\n", current_angle, p->angle);
+
     if (p->angle > 0) {
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
-
-      printf("Curr and target %f %f", current_angle, p->angle);
 
       if (current_angle >= p->angle) {
         p->motorspeed_r = 0;
@@ -586,31 +620,47 @@ void update_motcon(motiontype *p, odotype *odo) {
 
   case mot_followline:
 
-    if (p->stop_criteria == stop_at_crossing ||
-        p->stop_criteria == stop_at_lost_line)) {
-        if (minLineSensorIndex == -1) {
-          p->motorspeed_r = 0;
-          p->motorspeed_l = 0;
-          p->finished = 1;
-          break;
-        }
+    if (p->stop_criteria == stop_at_crossing) {
+      if (minLineSensorIndex == -1) {
+        p->motorspeed_r = 0;
+        p->motorspeed_l = 0;
+        p->finished = 1;
+        break;
       }
-
-    delta_velocity = 1 * (normalised_sensor_data[MIDDLE_LINE_SENSOR] -
-                          normalised_sensor_data[minLineSensorIndex]);
-
-    if (p->followdirection == follow_middle) {
-      if (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.1) {
-        delta_velocity = 0;
+    }
+    if (p->stop_criteria == stop_at_lost_line) {
+      if (minLineSensorIndex == -1 &&
+          normalised_sensor_data[MIDDLE_LINE_SENSOR] > 0.2) {
+        p->motorspeed_r = 0;
+        p->motorspeed_l = 0;
+        p->finished = 1;
+        break;
       }
     }
 
+    double obst_distance = check_obstacle_distance();
+    if (p->stop_criteria == stop_at_box && obst_distance <= 0.2) {
+      printf("Stopping at %f. X Distance %f\n", obst_distance,
+             obst_distance + odo->x);
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      break;
+    }
+
     if (minLineSensorIndex < MIDDLE_LINE_SENSOR) {
-      delta_velocity =
-          -delta_velocity * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
+      delta_velocity = -K * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
+    } else if (minLineSensorIndex > MIDDLE_LINE_SENSOR) {
+      delta_velocity = K * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
     } else {
-      delta_velocity =
-          delta_velocity * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
+      delta_velocity = 0;
+    }
+
+    if (p->followdirection == follow_middle &&
+        (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.2 ||
+         normalised_sensor_data[MIDDLE_LINE_SENSOR - 1] < 0.2 ||
+         normalised_sensor_data[MIDDLE_LINE_SENSOR + 1] < 0.2)) {
+      delta_velocity = 0;
     }
 
     p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
@@ -618,6 +668,17 @@ void update_motcon(motiontype *p, odotype *odo) {
 
     break;
   }
+}
+
+double check_obstacle_distance() {
+  double avgDistance = (laserpar[3] + laserpar[4] + laserpar[5]) / 3;
+  if (avgDistance == 0) {
+    avgDistance = 1;
+  }
+
+  // printf("%f %f %f %f\n", laserpar[3], laserpar[4], laserpar[5],
+  // avgDistance);
+  return avgDistance;
 }
 
 double calculate_center_of_mass(double values[], int followBlack) {
@@ -758,17 +819,14 @@ int turn(double angle, double speed, double startangle, int time) {
 }
 
 // ex7
-int follow_line(int stop_criteria, double finalangle, double speed,
-                int followdirection, int time)
+int follow_line(int stop_criteria, double speed, int followdirection, int time)
 
 {
   if (time == 0) {
     mot.cmd = mot_followline;
     mot.speedcmd = speed;
     mot.stop_criteria = stop_criteria;
-
     mot.currentspeed = 0;
-    mot.finalangle = finalangle;
     mot.followdirection = followdirection;
     return 0;
   } else
