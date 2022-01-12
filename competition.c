@@ -103,7 +103,7 @@ typedef struct { // input
   double startpos;
 } motiontype;
 
-enum { mot_stop = 1, mot_move, mot_turn, mot_followline };
+enum { mot_stop = 1, mot_move, mot_turn, mot_followline, mot_followwall };
 
 enum { follow_left, follow_middle, follow_right };
 
@@ -132,9 +132,10 @@ enum {
 
 void update_motcon(motiontype *p, odotype *odo);
 
-int fwd(double dist, double speed, int time);
+int fwd(int stop_criteria, double dist, double speed, int time);
 int turn(double angle, double speed, double startangle, int time);
 int follow_line(int stop_criteria, double speed, int followdirection, int time);
+int follow_wall(int stop_criteria, double speed, int followdirection, int time);
 
 typedef struct {
   int state, oldstate;
@@ -159,6 +160,7 @@ enum {
   ms_turn,
   ms_end,
   ms_followline,
+  ms_followwall,
   ms_fwd_obst,
   ms_change_step
 };
@@ -373,7 +375,7 @@ int main() {
         mission.state = ms_followline;
 
       } else if (current_step == step_10_followline_middle_until_gate) {
-        dist = 0.6;
+        dist = 0.65;
         current_step = step_11_forward_to_align_with_gate;
         mission.state = ms_fwd;
       } else if (current_step == step_11_forward_to_align_with_gate) {
@@ -381,7 +383,8 @@ int main() {
         current_step = step_12_rotate_90_degrees_to_gate;
         mission.state = ms_turn;
       } else if (current_step == step_12_rotate_90_degrees_to_gate) {
-        dist = 0.8;
+        dist = 4;
+        stop_criteria = stop_at_box;
         current_step = step_13_forward_to_enter_gate;
         mission.state = ms_fwd;
       } else if (current_step == step_13_forward_to_enter_gate) {
@@ -393,7 +396,7 @@ int main() {
       break;
 
     case ms_fwd:
-      if (fwd(dist, speed, mission.time))
+      if (fwd(stop_criteria, dist, speed, mission.time))
         mission.state = ms_change_step;
       break;
 
@@ -409,6 +412,11 @@ int main() {
       }
       break;
 
+    case ms_followwall:
+      if (follow_wall(stop_criteria, speed, followdirection, mission.time)) {
+        mission.state = ms_change_step;
+      }
+      break;
     case ms_end:
       mot.cmd = mot_stop;
       running = 0;
@@ -547,7 +555,13 @@ void update_motcon(motiontype *p, odotype *odo) {
       p->startpos = (p->left_pos + p->right_pos) / 2;
       p->curcmd = mot_followline;
       break;
+
+    case mot_followwall:
+      p->startpos = (p->left_pos + p->right_pos) / 2;
+      p->curcmd = mot_followwall;
+      break;
     }
+
     p->cmd = 0;
   }
 
@@ -588,6 +602,16 @@ void update_motcon(motiontype *p, odotype *odo) {
   //        laserpar[6], laserpar[7], laserpar[8], laserpar[9]);
 
   double K = .2;
+
+  double obst_distance = check_obstacle_distance();
+  if (p->stop_criteria == stop_at_box && obst_distance <= 0.2) {
+    printf("Stopping at %f. X Distance %f\n", obst_distance,
+           obst_distance + odo->x);
+    p->motorspeed_r = 0;
+    p->motorspeed_l = 0;
+    p->finished = 1;
+    return;
+  }
 
   switch (p->curcmd) {
   case mot_stop:
@@ -668,16 +692,6 @@ void update_motcon(motiontype *p, odotype *odo) {
       break;
     }
 
-    double obst_distance = check_obstacle_distance();
-    if (p->stop_criteria == stop_at_box && obst_distance <= 0.2) {
-      printf("Stopping at %f. X Distance %f\n", obst_distance,
-             obst_distance + odo->x);
-      p->motorspeed_r = 0;
-      p->motorspeed_l = 0;
-      p->finished = 1;
-      break;
-    }
-
     if (minLineSensorIndex < MIDDLE_LINE_SENSOR) {
       delta_velocity = -K * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
     } else if (minLineSensorIndex > MIDDLE_LINE_SENSOR) {
@@ -696,6 +710,21 @@ void update_motcon(motiontype *p, odotype *odo) {
     p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
     p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
 
+    break;
+
+  case mot_followwall:
+    if (laserpar[9] > 0.5) {
+        p->motorspeed_r = 0;
+        p->motorspeed_l = 0;
+        p->finished = 1;
+        break;
+    }
+
+    delta_velocity = K * (0.25 - laserpar[9]);
+
+
+    p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
+    p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
     break;
   }
 }
@@ -822,10 +851,11 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
   return smallestValueIndex;
 }
 
-int fwd(double dist, double speed, int time) {
+int fwd(int stop_criteria, double dist, double speed, int time) {
   if (time == 0) {
     mot.cmd = mot_move;
     mot.speedcmd = speed;
+    mot.stop_criteria = stop_criteria;
     mot.currentspeed = 0;
     mot.dist = dist;
     return 0;
@@ -848,12 +878,23 @@ int turn(double angle, double speed, double startangle, int time) {
     return mot.finished;
 }
 
-// ex7
-int follow_line(int stop_criteria, double speed, int followdirection, int time)
-
-{
+int follow_line(int stop_criteria, double speed, int followdirection,
+                int time) {
   if (time == 0) {
     mot.cmd = mot_followline;
+    mot.speedcmd = speed;
+    mot.stop_criteria = stop_criteria;
+    mot.currentspeed = 0;
+    mot.followdirection = followdirection;
+    return 0;
+  } else
+    return mot.finished;
+}
+
+int follow_wall(int stop_criteria, double speed, int followdirection,
+                int time) {
+  if (time == 0) {
+    mot.cmd = mot_followwall;
     mot.speedcmd = speed;
     mot.stop_criteria = stop_criteria;
     mot.currentspeed = 0;
