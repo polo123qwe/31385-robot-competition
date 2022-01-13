@@ -128,6 +128,9 @@ enum {
   step_17_rotate_90_degrees_to_gate,
   step_18_forward_to_enter_gate,
   step_19_backwards_to_exit_gate,
+  step_20_rotate_90_degrees_to_align_wall,
+  step_21_forward_to_reach_wall,
+  step_22_follow_wall_on_the_right,
   //...
 };
 
@@ -342,18 +345,18 @@ int main() {
     switch (mission.state) {
     case ms_init:
       // Start state
-      speed = 0.4;
-      followdirection = follow_right;
-      current_step = step_1_followline_until_box;
-      stop_criteria = stop_at_box;
-      mission.state = ms_followline;
+      // speed = 0.4;
+      // followdirection = follow_right;
+      // current_step = step_1_followline_until_box;
+      // stop_criteria = stop_at_box;
+      // mission.state = ms_followline;
 
       // Test
-      // speed = 0.4;
-      // followdirection = follow_middle;
-      // current_step = step_10_followline_middle_until_gate;
-      // stop_criteria = stop_at_gate_on_the_left;
-      // mission.state = ms_followline;
+      speed = 0.4;
+      followdirection = follow_middle;
+      current_step = step_10_followline_middle_until_gate;
+      stop_criteria = stop_at_gate_on_the_left;
+      mission.state = ms_followline;
 
       // Test 2
       // speed = 0.4;
@@ -419,20 +422,33 @@ int main() {
         dist = 0.4;
         current_step = step_16_forward_to_align_with_gate;
         mission.state = ms_fwd;
-      /*} else if (current_step == step_16_forward_to_align_with_gate) {
-        angle = 0.5 * M_PI;
+      } else if (current_step == step_16_forward_to_align_with_gate) {
+        angle = -0.5 * M_PI;
         current_step = step_17_rotate_90_degrees_to_gate;
         mission.state = ms_turn;
-
-        /*} else if (current_step == step_17_rotate_90_degrees_to_gate) {
-          current_step = step_18_forward_to_enter_gate;
-
-        } else if (current_step == step_18_forward_to_enter_gate) {
-          current_step = step_19_backwards_to_exit_gate;
-
-        } else if (current_step == step_19_backwards_to_exit_gate) {
-          // current_step = step_16_forward_to_align_with_gate;
-          mission.state = ms_end;*/
+      } else if (current_step == step_17_rotate_90_degrees_to_gate) {
+        dist = 0.8;
+        speed = 0.4;
+        current_step = step_18_forward_to_enter_gate;
+        mission.state = ms_fwd;
+      } else if (current_step == step_18_forward_to_enter_gate) {
+        dist = 0.8;
+        speed = -0.4;
+        current_step = step_19_backwards_to_exit_gate;
+        mission.state = ms_fwd;
+      } else if (current_step == step_19_backwards_to_exit_gate) {
+        angle = 0.5 * M_PI;
+        current_step = step_20_rotate_90_degrees_to_align_wall;
+        mission.state = ms_turn;
+      } else if (current_step == step_20_rotate_90_degrees_to_align_wall) {
+        dist = 0.4;
+        speed = 0.4;
+        current_step = step_21_forward_to_reach_wall;
+        mission.state = ms_fwd;
+      } else if (current_step == step_21_forward_to_reach_wall) {
+        followdirection = wall_right;
+        current_step = step_22_follow_wall_on_the_right;
+        mission.state = ms_followwall;
       } else {
         mission.state = ms_end;
       }
@@ -647,11 +663,11 @@ void update_motcon(motiontype *p, odotype *odo) {
 
   double *normalised_irsensor = normalise_ir_sensor(irsensor->data);
 
-  printf("irsensor %.2f %.2f %.2f %.2f %.2f\n", normalised_irsensor[0],
-         normalised_irsensor[1], normalised_irsensor[2], normalised_irsensor[3],
-         normalised_irsensor[4]);
+  // printf("irsensor %.2f %.2f %.2f %.2f %.2f\n", normalised_irsensor[0],
+  //        normalised_irsensor[1], normalised_irsensor[2],
+  //        normalised_irsensor[3], normalised_irsensor[4]);
 
-  double K = .2;
+  double K = .5;
 
   double obst_distance = check_obstacle_distance();
   if (p->stop_criteria == stop_at_box && obst_distance <= 0.15) {
@@ -672,7 +688,7 @@ void update_motcon(motiontype *p, odotype *odo) {
     // printf("Robot pos %f start pos %f dist %f\n",
     //        (p->right_pos + p->left_pos) / 2, p->startpos, p->dist);
 
-    if ((p->right_pos + p->left_pos) / 2 - p->startpos >= p->dist) {
+    if (fabs(((p->right_pos + p->left_pos) / 2) - p->startpos) >= p->dist) {
       p->finished = 1;
       p->motorspeed_l = 0;
       p->motorspeed_r = 0;
@@ -685,14 +701,14 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_turn:
-    // printf("Current %.3f target %.3f theta %.3f start %.3f\n", current_angle,
-    //        p->angle, odo->theta, p->startangle);
+    printf("Current %.3f target %.3f theta %.3f start %.3f\n", current_angle,
+           p->angle, odo->theta, p->startangle);
 
     if (p->angle > 0) {
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
 
-      if (current_angle > p->angle) {
+      if (fabs(current_angle) >= p->angle) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
@@ -703,7 +719,7 @@ void update_motcon(motiontype *p, odotype *odo) {
       }
     } else {
 
-      if (current_angle < p->angle) {
+      if (current_angle <= p->angle) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
@@ -763,9 +779,9 @@ void update_motcon(motiontype *p, odotype *odo) {
 
     break;
 
-  case mot_followwall:
-    // 0 and 8 are the sensors
-    if (normalised_irsensor[4] > 0.3) {
+  case mot_followwall: {
+    int sensor_index = p->followdirection == wall_right ? 0 : 4;
+    if (normalised_irsensor[sensor_index] > 0.3) {
       printf("Stopping following wall\n");
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
@@ -773,13 +789,19 @@ void update_motcon(motiontype *p, odotype *odo) {
       break;
     }
 
-    delta_velocity = 10 * (0.15 - normalised_irsensor[4]);
+    delta_velocity = 10 * (0.15 - normalised_irsensor[sensor_index]);
 
-    printf("Delta V %.3f irval %.3f\n", delta_velocity, normalised_irsensor[4]);
+    if (p->followdirection == wall_right) {
+      delta_velocity = -delta_velocity;
+    }
+
+    // printf("Delta V %.3f irval %.3f\n", delta_velocity,
+    // normalised_irsensor[sensor_index]);
 
     p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
     p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
     break;
+  }
   }
 }
 
