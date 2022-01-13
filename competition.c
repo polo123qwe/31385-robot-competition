@@ -95,6 +95,7 @@ typedef struct { // input
   int stop_criteria;
   double dist;
   double angle; // How much to turn
+  int line_color;
   double left_pos, right_pos;
   // parameters
   double w;
@@ -107,7 +108,15 @@ typedef struct { // input
 
 enum { mot_stop = 1, mot_move, mot_turn, mot_followline, mot_followwall };
 
-enum { follow_left, follow_middle, follow_right, wall_left, wall_right };
+enum {
+  follow_left,
+  follow_middle,
+  follow_right,
+  wall_left,
+  wall_right,
+  line_white,
+  line_black
+};
 
 enum {
   step_1_followline_until_box = 1,
@@ -131,6 +140,14 @@ enum {
   step_20_rotate_90_degrees_to_align_wall,
   step_21_forward_to_reach_wall,
   step_22_follow_wall_on_the_right,
+  step_23_forward_stop_at_crossing,
+  step_24_turn_to_step_on_line,
+  step_25_followline_stop_at_crossing,
+
+  step_26_forward_until_white_line,
+  step_27_rotate_to_align_white_line,
+  step_28_followline_white,
+
   //...
 };
 
@@ -146,7 +163,8 @@ void update_motcon(motiontype *p, odotype *odo);
 int fwd(int stop_criteria, double dist, double speed, int time);
 int turn(int stop_criteria, double angle, double speed, double startangle,
          int time);
-int follow_line(int stop_criteria, double speed, int followdirection, int time);
+int follow_line(int stop_criteria, double speed, int followdirection,
+                int line_color, int time);
 int follow_wall(int stop_criteria, double speed, int followdirection, int time);
 
 typedef struct {
@@ -183,12 +201,16 @@ double *linear_transformation(int OldValues[]);
 
 double *normalise_ir_sensor(int rawValues[]);
 
-int find_lowest_line_idx(double NewValues[], int followdirection);
+int find_sensor_value_idx(double lineValues[], int followdirection,
+                          int line_color);
+int find_lowest_line_idx(double lineValues[]);
+int find_biggest_line_idx(double lineValues[]);
 
 double check_obstacle_distance();
 
 int main() {
-  int running, arg, time = 0, stop_criteria = 0, current_step = 0;
+  int running, arg, time = 0, stop_criteria = 0, current_step = 0,
+                    line_color = 0;
   double dist = 0, angle = 0, followdirection = follow_middle, speed = 0;
 
   /* Establish connection to robot sensors and actuators.
@@ -351,18 +373,32 @@ int main() {
       // stop_criteria = stop_at_box;
       // mission.state = ms_followline;
 
-      // Test
+      // Checkpoint 1
       speed = 0.4;
       followdirection = follow_middle;
       current_step = step_10_followline_middle_until_gate;
       stop_criteria = stop_at_gate_on_the_left;
       mission.state = ms_followline;
 
-      // Test 2
+      // Checkpoint 2
       // speed = 0.4;
       // dist = 4;
       // angle = .5 * M_PI;
       // current_step = step_14_rotate_90_degrees_align_to_wall;
+      // mission.state = ms_turn;
+
+      // Checkpoint 3
+      // speed = 0.4;
+      // dist = 4;
+      // current_step = step_25_followline_stop_at_crossing;
+      // mission.state = ms_change_step;
+
+      // Test
+      // speed = 0.1;
+      // dist = 4;
+      // mot.line_color = line_black;
+      // angle = 10 * M_PI;
+      // current_step = 0;
       // mission.state = ms_turn;
 
       break;
@@ -427,12 +463,12 @@ int main() {
         current_step = step_17_rotate_90_degrees_to_gate;
         mission.state = ms_turn;
       } else if (current_step == step_17_rotate_90_degrees_to_gate) {
-        dist = 0.8;
+        dist = 0.6;
         speed = 0.4;
         current_step = step_18_forward_to_enter_gate;
         mission.state = ms_fwd;
       } else if (current_step == step_18_forward_to_enter_gate) {
-        dist = 0.8;
+        dist = 0.6;
         speed = -0.4;
         current_step = step_19_backwards_to_exit_gate;
         mission.state = ms_fwd;
@@ -449,6 +485,36 @@ int main() {
         followdirection = wall_right;
         current_step = step_22_follow_wall_on_the_right;
         mission.state = ms_followwall;
+
+      } else if (current_step == step_22_follow_wall_on_the_right) {
+        dist = 0.4;
+        stop_criteria = stop_at_crossing;
+        current_step = step_23_forward_stop_at_crossing;
+        mission.state = ms_fwd;
+      } else if (current_step == step_23_forward_stop_at_crossing) {
+        angle = 0.25 * M_PI;
+        current_step = step_24_turn_to_step_on_line;
+        mission.state = ms_turn;
+      } else if (current_step == step_24_turn_to_step_on_line) {
+        followdirection = follow_middle;
+        stop_criteria = stop_at_crossing;
+        current_step = step_25_followline_stop_at_crossing;
+        mission.state = ms_followline;
+      } else if (current_step == step_25_followline_stop_at_crossing) {
+        dist = 0.7;
+        speed = 0.4;
+        current_step = step_26_forward_until_white_line;
+        mission.state = ms_fwd;
+      } else if (current_step == step_26_forward_until_white_line) {
+        angle = 0.25 * M_PI;
+        current_step = step_27_rotate_to_align_white_line;
+        mission.state = ms_turn;
+      } else if (current_step == step_27_rotate_to_align_white_line) {
+        followdirection = follow_middle;
+        line_color = line_white;
+        stop_criteria = stop_at_crossing;
+        current_step = step_28_followline_white;
+        mission.state = ms_followline;
       } else {
         mission.state = ms_end;
       }
@@ -467,7 +533,8 @@ int main() {
       break;
 
     case ms_followline:
-      if (follow_line(stop_criteria, speed, followdirection, mission.time)) {
+      if (follow_line(stop_criteria, speed, followdirection, line_color,
+                      mission.time)) {
         mission.state = ms_change_step;
       }
       break;
@@ -642,20 +709,20 @@ void update_motcon(motiontype *p, odotype *odo) {
 
   double *normalised_sensor_data = linear_transformation(linesensor->data);
 
-  int minLineSensorIndex =
-      find_lowest_line_idx(normalised_sensor_data, p->followdirection);
+  int sensorIdxToFollow = find_sensor_value_idx(
+      normalised_sensor_data, p->followdirection, p->line_color);
 
   // printf("linesensor %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f;idx = % d\n ",
   //        normalised_sensor_data[0], normalised_sensor_data[1],
   //        normalised_sensor_data[2], normalised_sensor_data[3],
   //        normalised_sensor_data[4], normalised_sensor_data[5],
   //        normalised_sensor_data[6], normalised_sensor_data[7],
-  //        minLineSensorIndex);
+  //        sensorIdxToFollow);
 
-  // printf("linesensor %d %d %d %d %d %d %d %d; idx=%d\n", linesensor->data[0],
+  // printf("raw ls %d %d %d %d %d %d %d %d\n", linesensor->data[0],
   //        linesensor->data[1], linesensor->data[2], linesensor->data[3],
   //        linesensor->data[4], linesensor->data[5], linesensor->data[6],
-  //        linesensor->data[7], minLineSensorIndex);
+  //        linesensor->data[7]);
 
   // printf("%.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f\n", laserpar[0],
   //        laserpar[1], laserpar[2], laserpar[3], laserpar[4], laserpar[5],
@@ -677,6 +744,18 @@ void update_motcon(motiontype *p, odotype *odo) {
     p->motorspeed_l = 0;
     p->finished = 1;
     return;
+  }
+
+  if (p->stop_criteria == stop_at_crossing) {
+    // printf("Sensors now read %.3f\n", normalised_sensor_data[0]);
+
+    // If all sensors have same value and value is lower than 0.2, it means we are in all black scenario
+    if (sensorIdxToFollow == -1 && normalised_sensor_data[0] < 0.2) {
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      return;
+    }
   }
 
   switch (p->curcmd) {
@@ -701,8 +780,8 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_turn:
-    printf("Current %.3f target %.3f theta %.3f start %.3f\n", current_angle,
-           p->angle, odo->theta, p->startangle);
+    // printf("Current %.3f target %.3f theta %.3f start %.3f\n", current_angle,
+    //        p->angle, odo->theta, p->startangle);
 
     if (p->angle > 0) {
       p->motorspeed_r = 0;
@@ -732,25 +811,29 @@ void update_motcon(motiontype *p, odotype *odo) {
 
     break;
 
-  case mot_followline:
+  case mot_followline: {
+    // WARNING: When swtiching between line colors, this does not trigger when
+    // line changes color.
+    if (p->stop_criteria == stop_at_lost_line && sensorIdxToFollow == -1) {
+      // printf("We should stop maybe %d %.3f\n", sensorIdxToFollow,
+      // normalised_sensor_data[MIDDLE_LINE_SENSOR]);
 
-    if (p->stop_criteria == stop_at_crossing) {
-      if (minLineSensorIndex == -1) {
-        p->motorspeed_r = 0;
-        p->motorspeed_l = 0;
-        p->finished = 1;
-        break;
-      }
-    }
-    if (p->stop_criteria == stop_at_lost_line) {
-      if (minLineSensorIndex == -1 &&
+      if (p->line_color == line_black &&
           normalised_sensor_data[MIDDLE_LINE_SENSOR] > 0.2) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
         break;
       }
+      if (p->line_color == line_white &&
+          normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.8) {
+        p->motorspeed_r = 0;
+        p->motorspeed_l = 0;
+        p->finished = 1;
+        break;
+      }
     }
+
     if (p->stop_criteria == stop_at_gate_on_the_left && laserpar[0] > 0 &&
         laserpar[0] < 0.5) {
       p->motorspeed_r = 0;
@@ -759,26 +842,35 @@ void update_motcon(motiontype *p, odotype *odo) {
       break;
     }
 
-    if (minLineSensorIndex < MIDDLE_LINE_SENSOR) {
-      delta_velocity = -K * (MIDDLE_LINE_SENSOR - minLineSensorIndex);
-    } else if (minLineSensorIndex > MIDDLE_LINE_SENSOR) {
-      delta_velocity = K * (minLineSensorIndex - MIDDLE_LINE_SENSOR);
+    if (sensorIdxToFollow < MIDDLE_LINE_SENSOR) {
+      delta_velocity = -K * (MIDDLE_LINE_SENSOR - sensorIdxToFollow);
+    } else if (sensorIdxToFollow > MIDDLE_LINE_SENSOR) {
+      delta_velocity = K * (sensorIdxToFollow - MIDDLE_LINE_SENSOR);
     } else {
       delta_velocity = 0;
     }
 
-    if (p->followdirection == follow_middle &&
-        (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.2 ||
-         normalised_sensor_data[MIDDLE_LINE_SENSOR - 1] < 0.2 ||
-         normalised_sensor_data[MIDDLE_LINE_SENSOR + 1] < 0.2)) {
-      delta_velocity = 0;
+    if (p->line_color == line_white) {
+      if (p->followdirection == follow_middle &&
+          (normalised_sensor_data[MIDDLE_LINE_SENSOR] > 0.8 ||
+           normalised_sensor_data[MIDDLE_LINE_SENSOR - 1] > 0.8 ||
+           normalised_sensor_data[MIDDLE_LINE_SENSOR + 1] > 0.8)) {
+        delta_velocity = 0;
+      }
+    } else {
+      if (p->followdirection == follow_middle &&
+          (normalised_sensor_data[MIDDLE_LINE_SENSOR] < 0.2 ||
+           normalised_sensor_data[MIDDLE_LINE_SENSOR - 1] < 0.2 ||
+           normalised_sensor_data[MIDDLE_LINE_SENSOR + 1] < 0.2)) {
+        delta_velocity = 0;
+      }
     }
 
     p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
     p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
 
     break;
-
+  }
   case mot_followwall: {
     int sensor_index = p->followdirection == wall_right ? 0 : 4;
     if (normalised_irsensor[sensor_index] > 0.3) {
@@ -843,7 +935,7 @@ double calculate_center_of_mass(double values[], int followBlack) {
 
 double *linear_transformation(int oldValues[]) {
   int oldMax = 0;
-  int oldMin = 128;
+  int oldMin = 255;
   double newMin = 0;
   double newMax = 1;
   double oldRange;
@@ -863,7 +955,7 @@ double *linear_transformation(int oldValues[]) {
 
   if (oldRange < 5) {
     oldMin = 0;
-    oldMax = 128;
+    oldMax = 255;
     oldRange = (oldMax - oldMin);
   }
 
@@ -876,23 +968,23 @@ double *linear_transformation(int oldValues[]) {
   return newValues;
 }
 
-int find_lowest_line_idx(double lineValues[], int followdirection) {
+int find_sensor_value_idx(double lineValues[], int followdirection,
+                          int line_color) {
   int foundLeftLineIdx = -1;
   int foundRightLineIdx = -1;
   int foundMiddleLineIdx = -1;
 
-  int smallestValueIndex = 0;
+  int indexFound = 0;
 
-  // Find smallest value
-  for (int i = 0; i < 8; i++) {
-    if (lineValues[i] < lineValues[smallestValueIndex]) {
-      smallestValueIndex = i;
-    }
+  if (line_color == line_white) {
+    indexFound = find_biggest_line_idx(lineValues);
+  } else {
+    indexFound = find_lowest_line_idx(lineValues);
   }
 
-  // Find black lines at either side
+  // Find lines at either side
   for (int i = 0; i < 8; i++) {
-    if (lineValues[i] == lineValues[smallestValueIndex]) {
+    if (lineValues[i] == lineValues[indexFound]) {
       if (i == MIDDLE_LINE_SENSOR) {
         foundMiddleLineIdx = i;
       } else if (i < MIDDLE_LINE_SENSOR && foundRightLineIdx == -1) {
@@ -903,10 +995,13 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
     }
   }
 
+  // printf("%d Idx found %d L:M:R %d:%d:%d\n", line_color, indexFound,
+  // foundLeftLineIdx, foundMiddleLineIdx, foundRightLineIdx);
+
   // Stop at cross
   bool crossLine = true;
   for (int i = 1; i < 7; i++) {
-    if (lineValues[i] != lineValues[smallestValueIndex]) {
+    if (lineValues[i] != lineValues[indexFound]) {
       crossLine = false;
       break;
     }
@@ -934,7 +1029,33 @@ int find_lowest_line_idx(double lineValues[], int followdirection) {
     break;
   }
 
+  return indexFound;
+}
+
+int find_lowest_line_idx(double lineValues[]) {
+  int smallestValueIndex = 0;
+
+  // Find smallest value
+  for (int i = 0; i < 8; i++) {
+    if (lineValues[i] < lineValues[smallestValueIndex]) {
+      smallestValueIndex = i;
+    }
+  }
+
   return smallestValueIndex;
+}
+
+int find_biggest_line_idx(double lineValues[]) {
+  int biggestValueIndex = 0;
+
+  // Find biggest value
+  for (int i = 0; i < 8; i++) {
+    if (lineValues[i] > lineValues[biggestValueIndex]) {
+      biggestValueIndex = i;
+    }
+  }
+
+  return biggestValueIndex;
 }
 
 int fwd(int stop_criteria, double dist, double speed, int time) {
@@ -966,13 +1087,14 @@ int turn(int stop_criteria, double angle, double speed, double startangle,
 }
 
 int follow_line(int stop_criteria, double speed, int followdirection,
-                int time) {
+                int line_color, int time) {
   if (time == 0) {
     mot.cmd = mot_followline;
     mot.speedcmd = speed;
     mot.stop_criteria = stop_criteria;
     mot.currentspeed = 0;
     mot.followdirection = followdirection;
+    mot.line_color = line_color;
     return 0;
   } else
     return mot.finished;
