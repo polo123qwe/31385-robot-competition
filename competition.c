@@ -26,6 +26,8 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIDDLE_LINE_SENSOR 4
+#define IR_SENSOR_KA 10.611269153170243
+#define IR_SENSOR_KB 83.6498613968226
 
 struct xml_in *xmldata;
 struct xml_in *xmllaser;
@@ -105,7 +107,7 @@ typedef struct { // input
 
 enum { mot_stop = 1, mot_move, mot_turn, mot_followline, mot_followwall };
 
-enum { follow_left, follow_middle, follow_right };
+enum { follow_left, follow_middle, follow_right, wall_left, wall_right };
 
 enum {
   step_1_followline_until_box = 1,
@@ -120,11 +122,17 @@ enum {
   step_11_forward_to_align_with_gate,
   step_12_rotate_90_degrees_to_gate,
   step_13_forward_to_enter_gate,
+  step_14_rotate_90_degrees_align_to_wall,
+  step_15_follow_wall_on_the_left,
+  step_16_forward_to_align_with_gate,
+  step_17_rotate_90_degrees_to_gate,
+  step_18_forward_to_enter_gate,
+  step_19_backwards_to_exit_gate,
   //...
 };
 
 enum {
-  stop_at_box,
+  stop_at_box = 1,
   stop_at_lost_line,
   stop_at_crossing,
   stop_at_gate_on_the_left
@@ -133,7 +141,8 @@ enum {
 void update_motcon(motiontype *p, odotype *odo);
 
 int fwd(int stop_criteria, double dist, double speed, int time);
-int turn(double angle, double speed, double startangle, int time);
+int turn(int stop_criteria, double angle, double speed, double startangle,
+         int time);
 int follow_line(int stop_criteria, double speed, int followdirection, int time);
 int follow_wall(int stop_criteria, double speed, int followdirection, int time);
 
@@ -168,6 +177,8 @@ enum {
 double calculate_center_of_mass(double values[], int followBlack);
 
 double *linear_transformation(int OldValues[]);
+
+double *normalise_ir_sensor(int rawValues[]);
 
 int find_lowest_line_idx(double NewValues[], int followdirection);
 
@@ -331,23 +342,31 @@ int main() {
     switch (mission.state) {
     case ms_init:
       // Start state
-      // speed = 0.4;
-      // followdirection = follow_right;
-      // current_step = step_1_followline_until_box;
-      // stop_criteria = stop_at_box;
-      // mission.state = ms_followline;
+      speed = 0.4;
+      followdirection = follow_right;
+      current_step = step_1_followline_until_box;
+      stop_criteria = stop_at_box;
+      mission.state = ms_followline;
 
       // Test
-      speed = 0.4;
-      followdirection = follow_middle;
-      current_step = step_10_followline_middle_until_gate;
-      stop_criteria = stop_at_gate_on_the_left;
-      mission.state = ms_followline;
+      // speed = 0.4;
+      // followdirection = follow_middle;
+      // current_step = step_10_followline_middle_until_gate;
+      // stop_criteria = stop_at_gate_on_the_left;
+      // mission.state = ms_followline;
+
+      // Test 2
+      // speed = 0.4;
+      // dist = 4;
+      // angle = .5 * M_PI;
+      // current_step = step_14_rotate_90_degrees_align_to_wall;
+      // mission.state = ms_turn;
 
       break;
 
     case ms_change_step:
       printf("Step %d finished!\n", current_step);
+      stop_criteria = 0;
       if (current_step == step_1_followline_until_box) {
         angle = 1 * M_PI - 0.2;
         current_step = step_2_turn_180;
@@ -382,13 +401,38 @@ int main() {
         angle = 0.5 * M_PI;
         current_step = step_12_rotate_90_degrees_to_gate;
         mission.state = ms_turn;
+
       } else if (current_step == step_12_rotate_90_degrees_to_gate) {
         dist = 4;
         stop_criteria = stop_at_box;
         current_step = step_13_forward_to_enter_gate;
         mission.state = ms_fwd;
       } else if (current_step == step_13_forward_to_enter_gate) {
-        mission.state = ms_end;
+        angle = 0.5 * M_PI;
+        current_step = step_14_rotate_90_degrees_align_to_wall;
+        mission.state = ms_turn;
+      } else if (current_step == step_14_rotate_90_degrees_align_to_wall) {
+        followdirection = wall_left;
+        current_step = step_15_follow_wall_on_the_left;
+        mission.state = ms_followwall;
+      } else if (current_step == step_15_follow_wall_on_the_left) {
+        dist = 0.4;
+        current_step = step_16_forward_to_align_with_gate;
+        mission.state = ms_fwd;
+      /*} else if (current_step == step_16_forward_to_align_with_gate) {
+        angle = 0.5 * M_PI;
+        current_step = step_17_rotate_90_degrees_to_gate;
+        mission.state = ms_turn;
+
+        /*} else if (current_step == step_17_rotate_90_degrees_to_gate) {
+          current_step = step_18_forward_to_enter_gate;
+
+        } else if (current_step == step_18_forward_to_enter_gate) {
+          current_step = step_19_backwards_to_exit_gate;
+
+        } else if (current_step == step_19_backwards_to_exit_gate) {
+          // current_step = step_16_forward_to_align_with_gate;
+          mission.state = ms_end;*/
       } else {
         mission.state = ms_end;
       }
@@ -401,7 +445,7 @@ int main() {
       break;
 
     case ms_turn:
-      if (turn(angle, speed, odo.theta, mission.time)) {
+      if (turn(stop_criteria, angle, speed, odo.theta, mission.time)) {
         mission.state = ms_change_step;
       }
       break;
@@ -601,10 +645,16 @@ void update_motcon(motiontype *p, odotype *odo) {
   //        laserpar[1], laserpar[2], laserpar[3], laserpar[4], laserpar[5],
   //        laserpar[6], laserpar[7], laserpar[8], laserpar[9]);
 
+  double *normalised_irsensor = normalise_ir_sensor(irsensor->data);
+
+  printf("irsensor %.2f %.2f %.2f %.2f %.2f\n", normalised_irsensor[0],
+         normalised_irsensor[1], normalised_irsensor[2], normalised_irsensor[3],
+         normalised_irsensor[4]);
+
   double K = .2;
 
   double obst_distance = check_obstacle_distance();
-  if (p->stop_criteria == stop_at_box && obst_distance <= 0.2) {
+  if (p->stop_criteria == stop_at_box && obst_distance <= 0.15) {
     printf("Stopping at %f. X Distance %f\n", obst_distance,
            obst_distance + odo->x);
     p->motorspeed_r = 0;
@@ -635,13 +685,14 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_turn:
-    // printf("Current %f target %f\n", current_angle, p->angle);
+    // printf("Current %.3f target %.3f theta %.3f start %.3f\n", current_angle,
+    //        p->angle, odo->theta, p->startangle);
 
     if (p->angle > 0) {
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
 
-      if (current_angle >= p->angle) {
+      if (current_angle > p->angle) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
@@ -652,7 +703,7 @@ void update_motcon(motiontype *p, odotype *odo) {
       }
     } else {
 
-      if (current_angle <= p->angle) {
+      if (current_angle < p->angle) {
         p->motorspeed_r = 0;
         p->motorspeed_l = 0;
         p->finished = 1;
@@ -713,20 +764,33 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_followwall:
-    if (laserpar[9] > 0.5) {
-        p->motorspeed_r = 0;
-        p->motorspeed_l = 0;
-        p->finished = 1;
-        break;
+    // 0 and 8 are the sensors
+    if (normalised_irsensor[4] > 0.3) {
+      printf("Stopping following wall\n");
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      break;
     }
 
-    delta_velocity = K * (0.25 - laserpar[9]);
+    delta_velocity = 10 * (0.15 - normalised_irsensor[4]);
 
+    printf("Delta V %.3f irval %.3f\n", delta_velocity, normalised_irsensor[4]);
 
     p->motorspeed_r = (p->speedcmd + delta_velocity) / 2;
     p->motorspeed_l = (p->speedcmd - delta_velocity) / 2;
     break;
   }
+}
+
+double *normalise_ir_sensor(int rawValues[]) {
+  static double normalised_values[5];
+
+  for (int i = 0; i < 5; i++) {
+    normalised_values[i] = IR_SENSOR_KA / (rawValues[i] - IR_SENSOR_KB);
+  }
+
+  return normalised_values;
 }
 
 double check_obstacle_distance() {
@@ -863,15 +927,16 @@ int fwd(int stop_criteria, double dist, double speed, int time) {
     return mot.finished;
 }
 
-int turn(double angle, double speed, double startangle, int time) {
+int turn(int stop_criteria, double angle, double speed, double startangle,
+         int time) {
   if (time == 0) {
 
     mot.cmd = mot_turn;
     mot.speedcmd = speed;
     mot.currentspeed = 0;
-
+    mot.stop_criteria = stop_criteria;
     mot.startangle = startangle;
-
+    mot.stop_criteria = stop_criteria;
     mot.angle = angle;
     return 0;
   } else
