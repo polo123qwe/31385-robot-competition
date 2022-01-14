@@ -86,9 +86,11 @@ void update_odo(odotype *p);
  */
 
 typedef struct { // input
+  int wait_time;
   int cmd;
   int curcmd;
   double speedcmd;
+  double turn_speed;
   double currentspeed;
   double startangle;
   int followdirection;
@@ -106,7 +108,15 @@ typedef struct { // input
   double startpos;
 } motiontype;
 
-enum { mot_stop = 1, mot_move, mot_turn, mot_followline, mot_followwall };
+enum {
+  mot_stop = 1,
+  mot_move,
+  mot_turn,
+  mot_followline,
+  mot_followwall,
+  mot_turnr,
+  mot_wait
+};
 
 enum {
   follow_left,
@@ -115,18 +125,30 @@ enum {
   wall_left,
   wall_right,
   line_white,
-  line_black
+  line_black,
 };
 
 enum {
   step_1_followline_until_box = 1,
-  step_2_turn_180,
-  step_3_followline_middle_until_box,
-  step_4_followline_middle_until_line_stops,
-  step_5_move_backwards_until_not_next_to_wall,
-  step_6_turn_180,
-  step_7_followline_left,
+  step_2_wait,
+  step_3_turn_180,
+  step_3_1_followline_until_crossing,
+  step_3_2_fwd,
+  step_4_followline_until_right_line,
+  step_5_turnr_right,
+  step_6_followline_middle_until_box,
+  step_7_followline_middle_until_line_stops,
+  step_8_backwards,
+  step_9_turn_180,
+  step_10_followline_until_left_line,
+  step_11_turnr_left,
+  step_12_followline_until_crossing,
+  step_13_turnr_left,
+  step_14_followline_until_crossing,
+  step_15_fwd,
+  step_16_followline_until_crossing,
 
+  // CHECKPOINT2
   step_10_followline_middle_until_gate,
   step_11_forward_to_align_with_gate,
   step_12_rotate_90_degrees_to_gate,
@@ -160,7 +182,6 @@ enum {
   step_37_forward_until_wall,
   step_38_turn_90,
 
-
   //...
 };
 
@@ -168,14 +189,19 @@ enum {
   stop_at_box = 1,
   stop_at_lost_line,
   stop_at_crossing,
-  stop_at_gate_on_the_left
+  stop_at_gate_on_the_left,
+  stop_at_left_line,
+  stop_at_right_line,
 };
 
 void update_motcon(motiontype *p, odotype *odo);
 
+int wait(int stop_criteria, int time, int wait_time);
 int fwd(int stop_criteria, double dist, double speed, int time);
 int turn(int stop_criteria, double angle, double speed, double startangle,
          int time);
+int turnr(int stop_criteria, double dist, double speed, double turn_speed,
+          int time);
 int follow_line(int stop_criteria, double speed, int followdirection,
                 int line_color, int time);
 int follow_wall(int stop_criteria, double speed, int followdirection, int time);
@@ -205,7 +231,9 @@ enum {
   ms_followline,
   ms_followwall,
   ms_fwd_obst,
-  ms_change_step
+  ms_change_step,
+  ms_turnr,
+  ms_wait
 };
 
 double calculate_center_of_mass(double values[], int followBlack);
@@ -223,8 +251,9 @@ double check_obstacle_distance();
 
 int main() {
   int running, arg, time = 0, stop_criteria = 0, current_step = 0,
-                    line_color = 0;
-  double dist = 0, angle = 0, followdirection = follow_middle, speed = 0;
+                    wait_time = 0, line_color = 0;
+  double dist = 0, angle = 0, followdirection = follow_middle, speed = 0,
+         turn_speed = 0;
 
   /* Establish connection to robot sensors and actuators.
    */
@@ -380,11 +409,11 @@ int main() {
     switch (mission.state) {
     case ms_init:
       // Start state
-      // speed = 0.4;
-      // followdirection = follow_right;
-      // current_step = step_1_followline_until_box;
-      // stop_criteria = stop_at_box;
-      // mission.state = ms_followline;
+      speed = 0.4;
+      followdirection = follow_right;
+      current_step = step_1_followline_until_box;
+      stop_criteria = stop_at_box;
+      mission.state = ms_followline;
 
       // Checkpoint 1
       // speed = 0.4;
@@ -407,10 +436,10 @@ int main() {
       // mission.state = ms_change_step;
 
       // Checkpoint 4
-      speed = 0.4;
-      dist = 4;
-      current_step = step_31_forward_until_box;
-      mission.state = ms_change_step;
+      // speed = 0.4;
+      // dist = 4;
+      // current_step = step_31_forward_until_box;
+      // mission.state = ms_change_step;
 
       // Test
       // speed = 0.1;
@@ -426,31 +455,99 @@ int main() {
       printf("Step %d finished!\n", current_step);
       stop_criteria = 0;
       if (current_step == step_1_followline_until_box) {
-        angle = 1 * M_PI - 0.2;
-        current_step = step_2_turn_180;
+        wait_time = 100;
+        current_step = step_2_wait;
+        mission.state = ms_wait;
+      } else if (current_step == step_2_wait) {
+        angle = 1 * M_PI - 0.1;
+        current_step = step_3_turn_180;
         mission.state = ms_turn;
-      } else if (current_step == step_2_turn_180) {
-        followdirection = follow_right;
-        stop_criteria = stop_at_crossing;
-        current_step = step_3_followline_middle_until_box;
+        //
+        // } else if (current_step == step_3_turn_180) {
+        //   followdirection = follow_middle;
+        //   stop_criteria = stop_at_crossing;
+        //   current_step = step_3_1_followline_until_crossing;
+        //   mission.state = ms_followline;
+        // } else if (current_step == step_3_1_followline_until_crossing) {
+        //   speed = 0.3;
+        //   dist = 0.1;
+        //   current_step = step_3_2_fwd;
+        //   mission.state = ms_fwd;
+        // } else if (current_step == step_3_2_fwd) {
+      } else if (current_step ==
+                 step_3_turn_180) { // Replaced with else if from above
+        followdirection = follow_middle;
+        stop_criteria = stop_at_right_line;
+        current_step = step_4_followline_until_right_line;
         mission.state = ms_followline;
-      } else if (current_step == step_3_followline_middle_until_box) {
+      } else if (current_step == step_4_followline_until_right_line) {
+        speed = 0.4;
+        turn_speed = 0.35;
+        dist = 0.25;
+        current_step = step_5_turnr_right;
+        mission.state = ms_turnr;
+      } else if (current_step == step_5_turnr_right) {
         followdirection = follow_middle;
         stop_criteria = stop_at_box;
-        current_step = step_4_followline_middle_until_line_stops;
+        current_step = step_6_followline_middle_until_box;
         mission.state = ms_followline;
-      } else if (current_step == step_4_followline_middle_until_line_stops) {
+      } else if (current_step == step_6_followline_middle_until_box) {
         followdirection = follow_middle;
         stop_criteria = stop_at_lost_line;
-        current_step = step_5_move_backwards_until_not_next_to_wall;
+        current_step = step_7_followline_middle_until_line_stops;
         mission.state = ms_followline;
-      } else if (current_step == step_4_followline_middle_until_line_stops) {
+      } else if (current_step == step_7_followline_middle_until_line_stops) {
+        speed = -0.3;
+        dist = 1;
+        current_step = step_8_backwards;
+        mission.state = ms_fwd;
+      } else if (current_step == step_8_backwards) {
+        speed = 0.4;
+        angle = -1 * M_PI + 0.15;
+        current_step = step_9_turn_180;
+        mission.state = ms_turn;
+      } else if (current_step == step_9_turn_180) {
+        followdirection = follow_left;
+        stop_criteria = stop_at_left_line;
+        current_step = step_10_followline_until_left_line;
+        mission.state = ms_followline;
+      } else if (current_step == step_10_followline_until_left_line) {
+        speed = 0.35;
+        turn_speed = -0.25;
+        dist = 0.28;
+        current_step = step_11_turnr_left;
+        mission.state = ms_turnr;
+      } else if (current_step == step_11_turnr_left) {
+        speed = 0.4;
         followdirection = follow_middle;
         stop_criteria = stop_at_crossing;
-        speed = -0.4;
-        current_step = step_6_turn_180;
+        current_step = step_12_followline_until_crossing;
         mission.state = ms_followline;
-      // Checkpoint 1
+      } else if (current_step == step_12_followline_until_crossing) {
+        speed = 0.3;
+        turn_speed = -0.25;
+        dist = 0.05;
+        current_step = step_13_turnr_left;
+        mission.state = ms_turnr;
+      } else if (current_step == step_13_turnr_left) {
+        speed = 0.4;
+        followdirection = follow_middle;
+        stop_criteria = stop_at_crossing;
+        current_step = step_14_followline_until_crossing;
+        mission.state = ms_followline;
+      } else if (current_step == step_14_followline_until_crossing) {
+        speed = 0.3;
+        dist = 0.1;
+        current_step = step_15_fwd;
+        mission.state = ms_fwd;
+      } else if (current_step == step_15_fwd) {
+        speed = 0.4;
+        followdirection = follow_middle;
+        stop_criteria = stop_at_crossing;
+        current_step = step_16_followline_until_crossing;
+        mission.state = ms_followline;
+
+        // Checkpoint 1
       } else if (current_step == step_10_followline_middle_until_gate) {
         dist = 0.65;
         current_step = step_11_forward_to_align_with_gate;
@@ -469,7 +566,7 @@ int main() {
         angle = 0.5 * M_PI;
         current_step = step_14_rotate_90_degrees_align_to_wall;
         mission.state = ms_turn;
-      // Checkpoint 2
+        // Checkpoint 2
       } else if (current_step == step_14_rotate_90_degrees_align_to_wall) {
         followdirection = wall_left;
         current_step = step_15_follow_wall_on_the_left;
@@ -520,7 +617,7 @@ int main() {
         stop_criteria = stop_at_crossing;
         current_step = step_25_followline_stop_at_crossing;
         mission.state = ms_followline;
-      // Checkpoint 3
+        // Checkpoint 3
       } else if (current_step == step_25_followline_stop_at_crossing) {
         dist = 0.7;
         speed = 0.4;
@@ -550,7 +647,7 @@ int main() {
         stop_criteria = stop_at_box;
         current_step = step_31_forward_until_box;
         mission.state = ms_followline;
-      // Checkpoint 4
+        // Checkpoint 4
       } else if (current_step == step_31_forward_until_box) {
         angle = 0.5 * M_PI;
         current_step = step_32_rotate_to_align_wall;
@@ -611,11 +708,24 @@ int main() {
       }
       break;
 
+    case ms_turnr:
+      if (turnr(stop_criteria, dist, speed, turn_speed, mission.time)) {
+        mission.state = ms_change_step;
+      }
+      break;
+
+    case ms_wait:
+      if (wait(stop_criteria, mission.time, wait_time)) {
+        mission.state = ms_change_step;
+      }
+      break;
+
     case ms_followwall:
       if (follow_wall(stop_criteria, speed, followdirection, mission.time)) {
         mission.state = ms_change_step;
       }
       break;
+
     case ms_end:
       mot.cmd = mot_stop;
       running = 0;
@@ -737,9 +847,19 @@ void update_motcon(motiontype *p, odotype *odo) {
     case mot_stop:
       p->curcmd = mot_stop;
       break;
+
+    case mot_wait:
+      p->curcmd = mot_wait;
+      break;
+
     case mot_move:
       p->startpos = (p->left_pos + p->right_pos) / 2;
       p->curcmd = mot_move;
+      break;
+
+    case mot_turnr:
+      p->startpos = (p->left_pos + p->right_pos) / 2;
+      p->curcmd = mot_turnr;
       break;
 
     case mot_turn:
@@ -821,7 +941,8 @@ void update_motcon(motiontype *p, odotype *odo) {
   if (p->stop_criteria == stop_at_crossing) {
     // printf("Sensors now read %.3f\n", normalised_sensor_data[0]);
 
-    // If all sensors have same value and value is lower than 0.2, it means we are in all black scenario
+    // If all sensors have same value and value is lower than 0.2, it means we
+    // are in all black scenario
     if (sensorIdxToFollow == -1 && normalised_sensor_data[0] < 0.2) {
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
@@ -835,6 +956,20 @@ void update_motcon(motiontype *p, odotype *odo) {
     p->motorspeed_l = 0;
     p->motorspeed_r = 0;
     break;
+
+  case mot_wait:
+    p->wait_time = p->wait_time - 1;
+    if (p->wait_time % 20 == 0) {
+      printf("Stopped at %f. X Distance %f\n", obst_distance,
+             obst_distance + odo->x);
+    }
+    if (p->wait_time == 0) {
+      p->finished = 1;
+    }
+    p->motorspeed_l = 0;
+    p->motorspeed_r = 0;
+    break;
+
   case mot_move:
     // printf("Robot pos %f start pos %f dist %f\n",
     //        (p->right_pos + p->left_pos) / 2, p->startpos, p->dist);
@@ -884,12 +1019,30 @@ void update_motcon(motiontype *p, odotype *odo) {
     break;
 
   case mot_followline: {
-    // WARNING: When swtiching between line colors, this does not trigger when
-    // line changes color.
-    if (p->stop_criteria == stop_at_lost_line && sensorIdxToFollow == -1) {
-      // printf("We should stop maybe %d %.3f\n", sensorIdxToFollow,
-      // normalised_sensor_data[MIDDLE_LINE_SENSOR]);
+    if (p->stop_criteria == stop_at_crossing && sensorIdxToFollow == -1) {
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      break;
+    }
 
+    if (p->stop_criteria == stop_at_left_line &&
+        normalised_sensor_data[7] < 0.2) {
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      break;
+    }
+
+    if (p->stop_criteria == stop_at_right_line &&
+        normalised_sensor_data[1] < 0.2) {
+      p->motorspeed_r = 0;
+      p->motorspeed_l = 0;
+      p->finished = 1;
+      break;
+    }
+
+    if (p->stop_criteria == stop_at_lost_line && sensorIdxToFollow == -1) {
       if (p->line_color == line_black &&
           normalised_sensor_data[MIDDLE_LINE_SENSOR] > 0.2) {
         p->motorspeed_r = 0;
@@ -943,10 +1096,24 @@ void update_motcon(motiontype *p, odotype *odo) {
 
     break;
   }
+
+  case mot_turnr:
+    if (fabs((p->right_pos + p->left_pos) / 2 - p->startpos) >= p->dist) {
+      p->finished = 1;
+      p->motorspeed_l = 0;
+      p->motorspeed_r = 0;
+      break;
+    } else {
+      p->motorspeed_r = (p->speedcmd - p->turn_speed) / 2;
+      p->motorspeed_l = (p->speedcmd + p->turn_speed) / 2;
+      break;
+    }
+
   case mot_followwall: {
     int sensor_index = p->followdirection == wall_right ? 0 : 4;
     if (normalised_irsensor[sensor_index] > 0.3) {
-      printf("Stopping following wall %.3f\n", normalised_irsensor[sensor_index]);
+      printf("Stopping following wall %.3f\n",
+             normalised_irsensor[sensor_index]);
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
       p->finished = 1;
@@ -1072,7 +1239,7 @@ int find_sensor_value_idx(double lineValues[], int followdirection,
 
   // Stop at cross
   bool crossLine = true;
-  for (int i = 1; i < 7; i++) {
+  for (int i = 2; i < 6; i++) {
     if (lineValues[i] != lineValues[indexFound]) {
       crossLine = false;
       break;
@@ -1142,6 +1309,16 @@ int fwd(int stop_criteria, double dist, double speed, int time) {
     return mot.finished;
 }
 
+int wait(int stop_criteria, int time, int wait_time) {
+  if (time == 0) {
+    mot.cmd = mot_wait;
+    mot.stop_criteria = stop_criteria;
+    mot.wait_time = wait_time;
+    return 0;
+  } else
+    return mot.finished;
+}
+
 int turn(int stop_criteria, double angle, double speed, double startangle,
          int time) {
   if (time == 0) {
@@ -1153,6 +1330,20 @@ int turn(int stop_criteria, double angle, double speed, double startangle,
     mot.startangle = startangle;
     mot.stop_criteria = stop_criteria;
     mot.angle = angle;
+    return 0;
+  } else
+    return mot.finished;
+}
+
+int turnr(int stop_criteria, double dist, double speed, double turn_speed,
+          int time) {
+  if (time == 0) {
+    mot.cmd = mot_turnr;
+    mot.speedcmd = speed;
+    mot.turn_speed = turn_speed;
+    mot.currentspeed = 0;
+    mot.stop_criteria = stop_criteria;
+    mot.dist = dist;
     return 0;
   } else
     return mot.finished;
