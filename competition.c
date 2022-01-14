@@ -147,6 +147,19 @@ enum {
   step_26_forward_until_white_line,
   step_27_rotate_to_align_white_line,
   step_28_followline_white,
+  step_29_forward_to_align_line,
+
+  step_30_rotate_90_degrees_to_line,
+  step_31_forward_until_box,
+  step_32_rotate_to_align_wall,
+  step_32_followwall_right,
+  step_33_forward,
+  step_34_turn_90,
+  step_35_forward_until_box_side,
+  step_36_turn_90,
+  step_37_forward_until_wall,
+  step_38_turn_90,
+
 
   //...
 };
@@ -374,11 +387,11 @@ int main() {
       // mission.state = ms_followline;
 
       // Checkpoint 1
-      speed = 0.4;
-      followdirection = follow_middle;
-      current_step = step_10_followline_middle_until_gate;
-      stop_criteria = stop_at_gate_on_the_left;
-      mission.state = ms_followline;
+      // speed = 0.4;
+      // followdirection = follow_middle;
+      // current_step = step_10_followline_middle_until_gate;
+      // stop_criteria = stop_at_gate_on_the_left;
+      // mission.state = ms_followline;
 
       // Checkpoint 2
       // speed = 0.4;
@@ -392,6 +405,12 @@ int main() {
       // dist = 4;
       // current_step = step_25_followline_stop_at_crossing;
       // mission.state = ms_change_step;
+
+      // Checkpoint 4
+      speed = 0.4;
+      dist = 4;
+      current_step = step_31_forward_until_box;
+      mission.state = ms_change_step;
 
       // Test
       // speed = 0.1;
@@ -431,7 +450,7 @@ int main() {
         speed = -0.4;
         current_step = step_6_turn_180;
         mission.state = ms_followline;
-
+      // Checkpoint 1
       } else if (current_step == step_10_followline_middle_until_gate) {
         dist = 0.65;
         current_step = step_11_forward_to_align_with_gate;
@@ -450,6 +469,7 @@ int main() {
         angle = 0.5 * M_PI;
         current_step = step_14_rotate_90_degrees_align_to_wall;
         mission.state = ms_turn;
+      // Checkpoint 2
       } else if (current_step == step_14_rotate_90_degrees_align_to_wall) {
         followdirection = wall_left;
         current_step = step_15_follow_wall_on_the_left;
@@ -500,6 +520,7 @@ int main() {
         stop_criteria = stop_at_crossing;
         current_step = step_25_followline_stop_at_crossing;
         mission.state = ms_followline;
+      // Checkpoint 3
       } else if (current_step == step_25_followline_stop_at_crossing) {
         dist = 0.7;
         speed = 0.4;
@@ -512,9 +533,60 @@ int main() {
       } else if (current_step == step_27_rotate_to_align_white_line) {
         followdirection = follow_middle;
         line_color = line_white;
-        stop_criteria = stop_at_crossing;
+        stop_criteria = stop_at_lost_line;
         current_step = step_28_followline_white;
         mission.state = ms_followline;
+      } else if (current_step == step_28_followline_white) {
+        dist = 0.2;
+        current_step = step_29_forward_to_align_line;
+        mission.state = ms_fwd;
+      } else if (current_step == step_29_forward_to_align_line) {
+        angle = -0.5 * M_PI;
+        current_step = step_30_rotate_90_degrees_to_line;
+        mission.state = ms_turn;
+      } else if (current_step == step_30_rotate_90_degrees_to_line) {
+        followdirection = follow_middle;
+        line_color = line_black;
+        stop_criteria = stop_at_box;
+        current_step = step_31_forward_until_box;
+        mission.state = ms_followline;
+      // Checkpoint 4
+      } else if (current_step == step_31_forward_until_box) {
+        angle = 0.5 * M_PI;
+        current_step = step_32_rotate_to_align_wall;
+        mission.state = ms_turn;
+      } else if (current_step == step_32_rotate_to_align_wall) {
+        followdirection = wall_left;
+        current_step = step_32_followwall_right;
+        mission.state = ms_followwall;
+      } else if (current_step == step_32_followwall_right) {
+        dist = 0.4;
+        current_step = step_33_forward;
+        mission.state = ms_fwd;
+      } else if (current_step == step_33_forward) {
+        angle = -0.5 * M_PI;
+        current_step = step_34_turn_90;
+        mission.state = ms_turn;
+
+      } else if (current_step == step_34_turn_90) {
+        dist = 0.6;
+        speed = 0.4;
+        current_step = step_35_forward_until_box_side;
+        mission.state = ms_fwd;
+      } else if (current_step == step_35_forward_until_box_side) {
+        angle = -0.5 * M_PI;
+        current_step = step_36_turn_90;
+        mission.state = ms_turn;
+      } else if (current_step == step_36_turn_90) {
+        dist = 1;
+        speed = 0.4;
+        stop_criteria = stop_at_box;
+        current_step = step_37_forward_until_wall;
+        mission.state = ms_fwd;
+      } else if (current_step == step_37_forward_until_wall) {
+        angle = -0.5 * M_PI;
+        current_step = step_38_turn_90;
+        mission.state = ms_turn;
       } else {
         mission.state = ms_end;
       }
@@ -737,7 +809,7 @@ void update_motcon(motiontype *p, odotype *odo) {
   double K = .5;
 
   double obst_distance = check_obstacle_distance();
-  if (p->stop_criteria == stop_at_box && obst_distance <= 0.15) {
+  if (p->stop_criteria == stop_at_box && obst_distance <= 0.18) {
     printf("Stopping at %f. X Distance %f\n", obst_distance,
            obst_distance + odo->x);
     p->motorspeed_r = 0;
@@ -874,7 +946,7 @@ void update_motcon(motiontype *p, odotype *odo) {
   case mot_followwall: {
     int sensor_index = p->followdirection == wall_right ? 0 : 4;
     if (normalised_irsensor[sensor_index] > 0.3) {
-      printf("Stopping following wall\n");
+      printf("Stopping following wall %.3f\n", normalised_irsensor[sensor_index]);
       p->motorspeed_r = 0;
       p->motorspeed_l = 0;
       p->finished = 1;
