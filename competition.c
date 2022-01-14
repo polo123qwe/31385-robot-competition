@@ -115,7 +115,7 @@ enum {
   mot_followline,
   mot_followwall,
   mot_turnr,
-  mot_wait
+  mot_wait,
 };
 
 enum {
@@ -148,7 +148,6 @@ enum {
   step_15_fwd,
   step_16_followline_until_crossing,
 
-  // CHECKPOINT2
   step_10_followline_middle_until_gate,
   step_11_forward_to_align_with_gate,
   step_12_rotate_90_degrees_to_gate,
@@ -181,6 +180,9 @@ enum {
   step_36_turn_90,
   step_37_forward_until_wall,
   step_38_turn_90,
+  step_39_push_door_open,
+  step_40_rotate_to_align_to_line,
+  step_41_follow_line_until_end,
 
   //...
 };
@@ -409,11 +411,12 @@ int main() {
     switch (mission.state) {
     case ms_init:
       // Start state
-      speed = 0.4;
-      followdirection = follow_right;
-      current_step = step_1_followline_until_box;
-      stop_criteria = stop_at_box;
-      mission.state = ms_followline;
+      // speed = 0.4;
+      // line_color = line_black;
+      // followdirection = follow_right;
+      // current_step = step_1_followline_until_box;
+      // stop_criteria = stop_at_box;
+      // mission.state = ms_followline;
 
       // Checkpoint 1
       // speed = 0.4;
@@ -436,10 +439,10 @@ int main() {
       // mission.state = ms_change_step;
 
       // Checkpoint 4
-      // speed = 0.4;
-      // dist = 4;
-      // current_step = step_31_forward_until_box;
-      // mission.state = ms_change_step;
+      speed = 0.4;
+      dist = 4;
+      current_step = step_31_forward_until_box;
+      mission.state = ms_change_step;
 
       // Test
       // speed = 0.1;
@@ -548,6 +551,11 @@ int main() {
         mission.state = ms_followline;
 
         // Checkpoint 1
+      } else if (current_step == step_16_followline_until_crossing) {
+        followdirection = follow_middle;
+        current_step = step_10_followline_middle_until_gate;
+        stop_criteria = stop_at_gate_on_the_left;
+        mission.state = ms_followline;
       } else if (current_step == step_10_followline_middle_until_gate) {
         dist = 0.65;
         current_step = step_11_forward_to_align_with_gate;
@@ -684,6 +692,22 @@ int main() {
         angle = -0.5 * M_PI;
         current_step = step_38_turn_90;
         mission.state = ms_turn;
+      } else if (current_step == step_38_turn_90) {
+        speed = 0.4;
+        turn_speed = -0.08;
+        dist = 1.1;
+        current_step = step_39_push_door_open;
+        mission.state = ms_turnr;
+      } else if (current_step == step_39_push_door_open) {
+        angle = 0.5 * M_PI;
+        current_step = step_40_rotate_to_align_to_line;
+        mission.state = ms_turn;
+      } else if (current_step == step_40_rotate_to_align_to_line) {
+        followdirection = follow_middle;
+        stop_criteria = stop_at_box;
+        current_step = step_41_follow_line_until_end;
+        mission.state = ms_followline;
+
       } else {
         mission.state = ms_end;
       }
@@ -929,7 +953,7 @@ void update_motcon(motiontype *p, odotype *odo) {
   double K = .5;
 
   double obst_distance = check_obstacle_distance();
-  if (p->stop_criteria == stop_at_box && obst_distance <= 0.18) {
+  if (p->stop_criteria == stop_at_box && obst_distance <= 0.14) {
     printf("Stopping at %f. X Distance %f\n", obst_distance,
            obst_distance + odo->x);
     p->motorspeed_r = 0;
