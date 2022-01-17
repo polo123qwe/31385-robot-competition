@@ -382,12 +382,12 @@ int main() {
     update_odo(&odo);
 
     // Log data
-    datalogger[log_idx][0] = mission.time;
-    datalogger[log_idx][1] = mot.motorspeed_l;
-    datalogger[log_idx][2] = mot.motorspeed_r;
-    datalogger[log_idx][3] = odo.theta;
-    datalogger[log_idx][4] = odo.x;
-    datalogger[log_idx][5] = odo.y;
+    // datalogger[log_idx][0] = mission.time;
+    // datalogger[log_idx][1] = mot.motorspeed_l;
+    // datalogger[log_idx][2] = mot.motorspeed_r;
+    // datalogger[log_idx][3] = odo.theta;
+    // datalogger[log_idx][4] = odo.x;
+    // datalogger[log_idx][5] = odo.y;
 
     // laserlogger[log_idx][0] = laserpar[0];
     // laserlogger[log_idx][1] = laserpar[1];
@@ -411,12 +411,12 @@ int main() {
     switch (mission.state) {
     case ms_init:
       // Start state
-      // speed = 0.4;
-      // line_color = line_black;
-      // followdirection = follow_right;
-      // current_step = step_1_followline_until_box;
-      // stop_criteria = stop_at_box;
-      // mission.state = ms_followline;
+      speed = 0.5;
+      line_color = line_black;
+      followdirection = follow_right;
+      current_step = step_1_followline_until_box;
+      stop_criteria = stop_at_box;
+      mission.state = ms_followline;
 
       // Checkpoint 1
       // speed = 0.4;
@@ -439,10 +439,10 @@ int main() {
       // mission.state = ms_change_step;
 
       // Checkpoint 4
-      speed = 0.4;
-      dist = 4;
-      current_step = step_31_forward_until_box;
-      mission.state = ms_change_step;
+      // speed = 0.4;
+      // dist = 4;
+      // current_step = step_31_forward_until_box;
+      // mission.state = ms_change_step;
 
       // Test
       // speed = 0.1;
@@ -466,19 +466,19 @@ int main() {
         current_step = step_3_turn_180;
         mission.state = ms_turn;
         //
-        // } else if (current_step == step_3_turn_180) {
-        //   followdirection = follow_middle;
-        //   stop_criteria = stop_at_crossing;
-        //   current_step = step_3_1_followline_until_crossing;
-        //   mission.state = ms_followline;
-        // } else if (current_step == step_3_1_followline_until_crossing) {
-        //   speed = 0.3;
-        //   dist = 0.1;
-        //   current_step = step_3_2_fwd;
-        //   mission.state = ms_fwd;
-        // } else if (current_step == step_3_2_fwd) {
-      } else if (current_step ==
-                 step_3_turn_180) { // Replaced with else if from above
+        } else if (current_step == step_3_turn_180) {
+          followdirection = follow_middle;
+          stop_criteria = stop_at_crossing;
+          current_step = step_3_1_followline_until_crossing;
+          mission.state = ms_followline;
+        } else if (current_step == step_3_1_followline_until_crossing) {
+          speed = 0.3;
+          dist = 0.1;
+          current_step = step_3_2_fwd;
+          mission.state = ms_fwd;
+        } else if (current_step == step_3_2_fwd) {
+      // } else if (current_step ==
+      //            step_3_turn_180) { // Replaced with else if from above
         followdirection = follow_middle;
         stop_criteria = stop_at_right_line;
         current_step = step_4_followline_until_right_line;
@@ -490,6 +490,7 @@ int main() {
         current_step = step_5_turnr_right;
         mission.state = ms_turnr;
       } else if (current_step == step_5_turnr_right) {
+        speed = 0.5;
         followdirection = follow_middle;
         stop_criteria = stop_at_box;
         current_step = step_6_followline_middle_until_box;
@@ -510,6 +511,7 @@ int main() {
         current_step = step_9_turn_180;
         mission.state = ms_turn;
       } else if (current_step == step_9_turn_180) {
+        speed = 0.5;
         followdirection = follow_left;
         stop_criteria = stop_at_left_line;
         current_step = step_10_followline_until_left_line;
@@ -521,7 +523,7 @@ int main() {
         current_step = step_11_turnr_left;
         mission.state = ms_turnr;
       } else if (current_step == step_11_turnr_left) {
-        speed = 0.4;
+        speed = 0.5;
         followdirection = follow_middle;
         stop_criteria = stop_at_crossing;
         current_step = step_12_followline_until_crossing;
@@ -533,7 +535,7 @@ int main() {
         current_step = step_13_turnr_left;
         mission.state = ms_turnr;
       } else if (current_step == step_13_turnr_left) {
-        speed = 0.4;
+        speed = 0.5;
         followdirection = follow_middle;
         stop_criteria = stop_at_crossing;
         current_step = step_14_followline_until_crossing;
@@ -544,7 +546,7 @@ int main() {
         current_step = step_15_fwd;
         mission.state = ms_fwd;
       } else if (current_step == step_15_fwd) {
-        speed = 0.4;
+        speed = 0.5;
         followdirection = follow_middle;
         stop_criteria = stop_at_crossing;
         current_step = step_16_followline_until_crossing;
@@ -552,6 +554,7 @@ int main() {
 
         // Checkpoint 1
       } else if (current_step == step_16_followline_until_crossing) {
+        speed=0.6;
         followdirection = follow_middle;
         current_step = step_10_followline_middle_until_gate;
         stop_criteria = stop_at_gate_on_the_left;
@@ -566,6 +569,7 @@ int main() {
         mission.state = ms_turn;
 
       } else if (current_step == step_12_rotate_90_degrees_to_gate) {
+        speed = 0.4;
         dist = 4;
         stop_criteria = stop_at_box;
         current_step = step_13_forward_to_enter_gate;
@@ -607,6 +611,7 @@ int main() {
         current_step = step_21_forward_to_reach_wall;
         mission.state = ms_fwd;
       } else if (current_step == step_21_forward_to_reach_wall) {
+        speed = 0.4;
         followdirection = wall_right;
         current_step = step_22_follow_wall_on_the_right;
         mission.state = ms_followwall;
@@ -778,35 +783,35 @@ int main() {
 
   /* LOGGING */
   /* Dump sensor log to file */
-  printf("Dumping sensor log to file!\n");
-  FILE *sensor_out;
-  sensor_out = fopen("sensorlog.dat", "w");
-  if (sensor_out == NULL) {
-    fprintf(stderr, "error opening sensorlog.dat\n");
-    exit(EXIT_FAILURE);
-  }
-  for (int i = 0; i < log_idx; i++) {
-    fprintf(sensor_out, "%.3f %.3f %.3f %.3f %.3f %.3f \n", datalogger[i][0],
-            datalogger[i][1], datalogger[i][2], datalogger[i][3],
-            datalogger[i][4], datalogger[i][5]);
-  }
-  fclose(sensor_out);
+  // printf("Dumping sensor log to file!\n");
+  // FILE *sensor_out;
+  // sensor_out = fopen("sensorlog.dat", "w");
+  // if (sensor_out == NULL) {
+  //   fprintf(stderr, "error opening sensorlog.dat\n");
+  //   exit(EXIT_FAILURE);
+  // }
+  // for (int i = 0; i < log_idx; i++) {
+  //   fprintf(sensor_out, "%.3f %.3f %.3f %.3f %.3f %.3f \n", datalogger[i][0],
+  //           datalogger[i][1], datalogger[i][2], datalogger[i][3],
+  //           datalogger[i][4], datalogger[i][5]);
+  // }
+  // fclose(sensor_out);
 
   /* Dump laser log to file */
-  printf("Dumping laser log to file!\n");
-  FILE *laser_out;
-  laser_out = fopen("laserlog.dat", "w");
-  if (laser_out == NULL) {
-    fprintf(stderr, "error opening laserlog.dat\n");
-    exit(EXIT_FAILURE);
-  }
-  for (int i = 0; i < log_idx; i++) {
-    fprintf(laser_out, "%f %f %f %f %f %f %f %f %f %f\n", laserlogger[i][0],
-            laserlogger[i][1], laserlogger[i][2], laserlogger[i][3],
-            laserlogger[i][4], laserlogger[i][5], laserlogger[i][6],
-            laserlogger[i][7], laserlogger[i][8], laserlogger[i][9]);
-  }
-  fclose(laser_out);
+  // printf("Dumping laser log to file!\n");
+  // FILE *laser_out;
+  // laser_out = fopen("laserlog.dat", "w");
+  // if (laser_out == NULL) {
+  //   fprintf(stderr, "error opening laserlog.dat\n");
+  //   exit(EXIT_FAILURE);
+  // }
+  // for (int i = 0; i < log_idx; i++) {
+  //   fprintf(laser_out, "%f %f %f %f %f %f %f %f %f %f\n", laserlogger[i][0],
+  //           laserlogger[i][1], laserlogger[i][2], laserlogger[i][3],
+  //           laserlogger[i][4], laserlogger[i][5], laserlogger[i][6],
+  //           laserlogger[i][7], laserlogger[i][8], laserlogger[i][9]);
+  // }
+  // fclose(laser_out);
   /* END LOGGING */
 
   speedl->data[0] = 0;
